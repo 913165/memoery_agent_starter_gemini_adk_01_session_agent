@@ -72,14 +72,14 @@ Google ADK (Agent Development Kit) is a framework for building AI agents that ca
 #### 1. **Agent**
 An agent is your AI assistant. It's configured with:
 - **name**: Identifier for the agent
-- **model**: The LLM to use (e.g., `gemini-2.5-flash-lite`)
+- **model**: The LLM to use (e.g., `gemini-3.1-flash-lite-preview`)
 - **description**: What the agent does
 - **instruction**: System prompt that guides the agent's behavior
 
 ```python
 root_agent = Agent(
     name="memory_agent",
-    model="gemini-2.5-flash-lite",
+    model="gemini-3.1-flash-lite-preview",
     description="A helpful travel planning agent...",
     instruction="You are a friendly travel planning assistant..."
 )
@@ -142,7 +142,7 @@ load_dotenv()  # Load API key from .env
 
 root_agent = Agent(
     name="memory_agent",
-    model="gemini-2.5-flash-lite",
+    model="gemini-3.1-flash-lite-preview",
     description="A helpful travel planning agent that remembers user preferences...",
     instruction="You are a friendly travel planning assistant..."
 )
@@ -220,7 +220,7 @@ async def main():
 
 You can use any of these models (check availability for your API tier):
 
-- `gemini-2.5-flash-lite` (Recommended - fast & efficient)
+- `gemini-3.1-flash-lite-preview` (Recommended - fast & efficient)
 - `gemini-2.5-flash-preview-tts`
 - `gemini-3-flash-preview`
 - `gemini-pro-latest`
@@ -271,7 +271,7 @@ root_agent = Agent(
 ### "404 NOT_FOUND: This model is no longer available"
 Update the model in `agent.py`:
 ```python
-model="gemini-2.5-flash-lite",  # Try a different available model
+model="gemini-3.1-flash-lite-preview",  # Try a different available model
 ```
 
 ### "GOOGLE_API_KEY not found"
