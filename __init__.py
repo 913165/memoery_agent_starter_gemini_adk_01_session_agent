@@ -1,2 +1,1 @@
-from . import agent
-
+# Root package intentionally left minimal; run examples from subpackages.

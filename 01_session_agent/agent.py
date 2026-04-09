@@ -1,4 +1,3 @@
-
 from dotenv import load_dotenv
 from google.adk.agents import Agent
 
@@ -16,4 +15,4 @@ root_agent = Agent(
     ),
 )
 
-print(f"🗺️ Agent '{root_agent.name}' is created and ready to plan and adapt!")
+print(f"Agent '{root_agent.name}' is created and ready to plan and adapt!")

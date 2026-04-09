@@ -1,4 +1,3 @@
-
 # Memory Agent Starter with Google AI
 
 A starter project demonstrating how to build a conversational AI agent using **Google ADK (Agent Development Kit)** that maintains memory across multiple sessions.
@@ -43,18 +42,26 @@ Replace `your_api_key_here` with your actual API key from [Google AI Studio](htt
 
 ### 5. Run the Project
 ```bash
-python main.py
+python 01_session_agent/main.py
+# or
+python 02_multi_agent/main.py
 ```
 
 ## 📁 Project Structure
 
 ```
 memory_agent_starter_googleai/
-├── agent.py           # Defines the AI agent
-├── main.py            # Main script with scenarios
-├── .env               # API key configuration (create this)
-├── requirements.txt   # Project dependencies
-└── README.md          # This file
+├── 01_session_agent/
+│   ├── __init__.py
+│   ├── agent.py
+│   └── main.py
+├── 02_multi_agent/
+│   ├── __init__.py
+│   ├── agent.py
+│   └── main.py
+├── .env
+├── requirements.txt
+└── README.md
 ```
 
 ## 🧠 Understanding Google ADK
@@ -131,7 +138,7 @@ session_service = InMemorySessionService()
 
 ## 📖 Code Walkthrough
 
-### agent.py
+### step_01_session_agent/agent.py
 Defines the AI agent configuration:
 
 ```python
@@ -152,7 +159,7 @@ root_agent = Agent(
 - `Agent`: The main agent class
 - `load_dotenv()`: Loads environment variables from `.env` file
 
-### main.py
+### step_01_session_agent/main.py
 
 #### Helper Function: `run_agent_query()`
 Executes a query and returns the agent's response:
@@ -249,7 +256,7 @@ async def run_custom_scenario(session_service, user_id):
 ```
 
 ### Modify Agent Instructions
-Edit `agent.py`:
+Edit `step_01_session_agent/agent.py`:
 ```python
 instruction=(
     "You are a helpful assistant that specializes in [YOUR SPECIALTY]"
@@ -269,7 +276,7 @@ root_agent = Agent(
 ## 🐛 Troubleshooting
 
 ### "404 NOT_FOUND: This model is no longer available"
-Update the model in `agent.py`:
+Update the model in `step_01_session_agent/agent.py`:
 ```python
 model="gemini-3.1-flash-lite-preview",  # Try a different available model
 ```
@@ -316,6 +323,4 @@ This is a starter project based on Google's ADK examples.
 
 ---
 
-**Happy building! 🚀** If you have questions, check the [Google ADK docs](https://ai.google.dev/) or experiment with the scenarios in `main.py`.
-
-#
+**Happy building! 🚀** If you have questions, check the [Google ADK docs](https://ai.google.dev/) or experiment with the scenarios in `step_01_session_agent/main.py`.
