@@ -1,3 +1,4 @@
+
 # Memory Agent Starter with Google AI
 
 A starter project demonstrating how to build a conversational AI agent using **Google ADK (Agent Development Kit)** that maintains memory across multiple sessions.
@@ -317,5 +318,4 @@ This is a starter project based on Google's ADK examples.
 
 **Happy building! 🚀** If you have questions, check the [Google ADK docs](https://ai.google.dev/) or experiment with the scenarios in `main.py`.
 
-#   m e m o e r y _ a g e n t _ s t a r t e r _ g e m i n i _ a d k _ 0 1 _ s e s s i o n _ a g e n t  
- 
+#
