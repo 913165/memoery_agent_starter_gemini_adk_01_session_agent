@@ -14,6 +14,125 @@ from google.adk.runners import Runner
 from google.adk.sessions import Session, DatabaseSessionService
 from agent import root_agent
 
+# ---------------------------------------------------------------------------
+# SQLite vs MySQL — what changes:
+#
+#   MySQL  → db_url = "mysql+aiomysql://user:pass@host:port/dbname"
+#   SQLite → db_url = "sqlite+aiosqlite:///path/to/sessions.db"
+#
+# Everything else (DatabaseSessionService, Runner, sessions, events) is
+# identical. ADK abstracts the database completely behind the same API.
+#
+# Schema note: ADK v1 stores ALL event fields in a single 'event_data'
+# JSON column. It detects the schema version via 'adk_internal_metadata'.
+# If that table is missing, ADK misdetects v0 (Pickle) and fails.
+# ensure_tables() below creates the correct schema before ADK connects.
+# ---------------------------------------------------------------------------
+
+DB_PATH = Path(__file__).parent / "sessions.db"
+DB_URL  = f"sqlite+aiosqlite:///{DB_PATH}"
+
+# ADK v1 schema DDL — same for both SQLite and MySQL (column names/types identical)
+# SQLite uses TEXT for all string/JSON fields; MySQL uses LONGTEXT.
+# We use TEXT here which works for SQLite.
+_DDL = [
+    ("adk_internal_metadata",
+     """CREATE TABLE IF NOT EXISTS adk_internal_metadata (
+            key   TEXT NOT NULL PRIMARY KEY,
+            value TEXT NOT NULL
+        )"""),
+    ("sessions",
+     """CREATE TABLE IF NOT EXISTS sessions (
+            app_name    TEXT NOT NULL,
+            user_id     TEXT NOT NULL,
+            id          TEXT NOT NULL,
+            state       TEXT,
+            create_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+            update_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+            PRIMARY KEY (app_name, user_id, id)
+        )"""),
+    ("events",
+     """CREATE TABLE IF NOT EXISTS events (
+            app_name      TEXT NOT NULL,
+            user_id       TEXT NOT NULL,
+            session_id    TEXT NOT NULL,
+            id            TEXT NOT NULL,
+            invocation_id TEXT NOT NULL DEFAULT '',
+            timestamp     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+            event_data    TEXT,
+            PRIMARY KEY (app_name, user_id, session_id, id),
+            FOREIGN KEY (app_name, user_id, session_id)
+                REFERENCES sessions (app_name, user_id, id)
+                ON DELETE CASCADE
+        )"""),
+    ("app_states",
+     """CREATE TABLE IF NOT EXISTS app_states (
+            app_name    TEXT NOT NULL PRIMARY KEY,
+            state       TEXT,
+            update_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now'))
+        )"""),
+    ("user_states",
+     """CREATE TABLE IF NOT EXISTS user_states (
+            app_name    TEXT NOT NULL,
+            user_id     TEXT NOT NULL,
+            state       TEXT,
+            update_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+            PRIMARY KEY (app_name, user_id)
+        )"""),
+]
+
+
+async def ensure_tables():
+    """
+    Creates ADK v1 schema tables in SQLite if not present, or recreates them
+    if the old multi-column events schema (missing event_data) is detected.
+
+    Comparison with MySQL agent:
+      MySQL  → uses aiomysql, VARCHAR(128), LONGTEXT, InnoDB ENGINE
+      SQLite → uses aiosqlite, TEXT columns, no ENGINE clause
+      Logic  → identical: check adk_internal_metadata + event_data column
+    """
+    import aiosqlite
+
+    db_exists = DB_PATH.exists()
+
+    if db_exists:
+        async with aiosqlite.connect(DB_PATH) as db:
+            # Check for adk_internal_metadata
+            cur = await db.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='adk_internal_metadata'"
+            )
+            metadata_exists = (await cur.fetchone())[0] > 0
+
+            # Check for event_data column in events table
+            cur = await db.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='events'"
+            )
+            events_exists = (await cur.fetchone())[0] > 0
+
+            event_data_exists = False
+            if events_exists:
+                cur = await db.execute("PRAGMA table_info(events)")
+                cols = [row[1] for row in await cur.fetchall()]
+                event_data_exists = "event_data" in cols
+
+        if not metadata_exists or not event_data_exists:
+            print("⚠️  Outdated SQLite schema detected — deleting and recreating sessions.db...")
+            DB_PATH.unlink()  # Delete the old .db file — easiest way to reset SQLite
+            db_exists = False
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA foreign_keys = ON")
+        for _, ddl in _DDL:
+            await db.execute(ddl)
+        await db.execute(
+            "INSERT OR IGNORE INTO adk_internal_metadata (key, value) VALUES ('schema_version', '1')"
+        )
+        await db.commit()
+
+    print("✅ SQLite database tables ready (v1 JSON schema).")
+    print(f"   Database file: {DB_PATH}")
+
 
 # TODO: Configuration for Persistent Sessions
 
@@ -55,9 +174,14 @@ async def run_agent_query(agent: Agent, query: str, session: Session, user_id: s
 
 
 async def main():
-    # Create a SQLite-backed persistent session service
-    db_path = Path(__file__).parent / "sessions.db"
-    session_service = DatabaseSessionService(db_url=f"sqlite+aiosqlite:///{db_path}")
+    # Ensure correct v1 schema before ADK connects
+    await ensure_tables()
+
+    # SQLite-backed persistent session service
+    # 👆 Only difference from MySQL agent:
+    #    MySQL  → "mysql+aiomysql://root:root123@127.0.0.1:3306/adk_sessions"
+    #    SQLite → "sqlite+aiosqlite:///path/to/sessions.db"
+    session_service = DatabaseSessionService(db_url=DB_URL)
 
     # --- Test Case 1: New Session ---
     print("\n" + "=" * 50)
