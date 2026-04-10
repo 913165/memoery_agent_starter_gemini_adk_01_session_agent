@@ -18,6 +18,42 @@ Sessions survive process restarts and are stored in a local `sessions.db` file �
 
 ---
 
+## 🖥️ Fresh Clone — What Happens on a New Machine
+
+```bash
+git clone <repo>
+cd memory_agent_starter_googleai
+pip install -r requirements.txt
+# add GOOGLE_API_KEY to .env
+python 03_persistent_agent/mian.py
+```
+
+That's all. Here's what happens internally on first run:
+
+```
+mian.py starts
+  │
+  ├── ensure_tables()
+  │     ├── sessions.db does not exist
+  │     ├── Creates sessions.db with all 5 tables
+  │     └── Inserts adk_internal_metadata: schema_version = '1'
+  │
+  ├── DatabaseSessionService connects to sessions.db
+  │     └── Reads adk_internal_metadata → schema_version = '1' → uses v1 JSON ✅
+  │
+  └── Agent runs normally ✅
+
+Second run onwards:
+  ├── ensure_tables()
+  │     ├── sessions.db exists ✓
+  │     ├── adk_internal_metadata exists ✓
+  │     ├── event_data column exists ✓
+  │     └── Does nothing — zero SQL, zero warnings ✅
+  └── Agent resumes from persisted sessions ✅
+```
+
+---
+
 ## 🚀 Setup & Run
 
 ### 1. Prerequisites

@@ -17,6 +17,43 @@ Sessions survive process restarts, container restarts, and can be shared across 
 
 ---
 
+## 🖥️ Fresh Clone — What Happens on a New Machine
+
+```bash
+git clone <repo>
+cd memory_agent_starter_googleai
+pip install -r requirements.txt
+# add GOOGLE_API_KEY + MySQL credentials to .env
+docker run --name adk-mysql -e MYSQL_ROOT_PASSWORD=root123 -e MYSQL_DATABASE=adk_sessions -p 3306:3306 -d mysql:8.0
+# wait ~20 seconds for MySQL to initialise
+python 04_mysql_agent/main.py
+```
+
+That's all. Here's what happens internally on first run:
+
+```
+main.py starts
+  │
+  ├── ensure_tables()
+  │     ├── MySQL DB is empty (no tables)
+  │     ├── Creates all 5 tables with v1 schema
+  │     └── Inserts adk_internal_metadata: schema_version = '1'
+  │
+  ├── DatabaseSessionService connects to MySQL
+  │     └── Reads adk_internal_metadata → schema_version = '1' → uses v1 JSON ✅
+  │
+  └── Agent runs normally ✅
+
+Second run onwards:
+  ├── ensure_tables()
+  │     ├── adk_internal_metadata exists ✓
+  │     ├── event_data column exists ✓
+  │     └── Does nothing — zero SQL, zero warnings ✅
+  └── Agent resumes from persisted sessions ✅
+```
+
+---
+
 ## 🐳 Docker — Start MySQL
 
 > **This is the only infrastructure you need before running the agent.**

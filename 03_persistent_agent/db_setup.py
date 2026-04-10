@@ -1,12 +1,20 @@
 """
 ADK v1 SQLite schema setup.
-Ensures all tables exist with the correct v1 schema before ADK connects.
+
+Fresh clone / first run behaviour:
+  - sessions.db does not exist → created here with full v1 schema
+  - adk_internal_metadata inserted with schema_version='1'
+  - ADK reads this marker → uses v1 JSON serialization ✅
+
+Subsequent runs:
+  - sessions.db exists + adk_internal_metadata present + event_data column exists
+  - ensure_tables() does nothing (no SQL executed, no warnings) ✅
 
 Why this is needed:
-  - If tables don't exist, ADK auto-creates them with the legacy v0 Pickle schema.
-  - ADK detects schema version via 'adk_internal_metadata' table.
-  - v1 stores ALL event fields in a single 'event_data' TEXT column.
-  - If schema is outdated, the .db file is simply deleted and recreated.
+  - ADK does NOT auto-create tables.
+  - If tables are missing, ADK fails on first session operation.
+  - If adk_internal_metadata is missing, ADK inspects the events table and
+    misdetects the schema as legacy v0 (Pickle), causing serialization errors.
 """
 from pathlib import Path
 import aiosqlite
