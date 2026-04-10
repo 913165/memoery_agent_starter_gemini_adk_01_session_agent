@@ -1,75 +1,68 @@
 -- ============================================================
 -- MySQL Setup Script for ADK Session Store (v1 schema)
--- Run this script in your local MySQL client:
---   mysql -u root -p < setup_mysql.sql
--- Or paste it directly into MySQL Workbench / DBeaver / phpMyAdmin
+-- Schema sourced from: google.adk.sessions.schemas.v1
+--
+-- Run via Docker:
+--   docker exec -i adk-mysql mysql -u root -proot123 adk_sessions < setup_mysql.sql
+-- Or mysql client:
+--   mysql -u root -proot123 adk_sessions < setup_mysql.sql
 -- ============================================================
 
--- 1. Create the database if it doesn't already exist
 CREATE DATABASE IF NOT EXISTS adk_sessions
-    CHARACTER SET utf8mb4
-    COLLATE utf8mb4_unicode_ci;
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- 2. Switch to the new database
 USE adk_sessions;
 
--- 3. (Optional) Create a dedicated user instead of using root.
---    Replace 'adk_user' and 'adk_password' with your own values,
---    then update MYSQL_USER / MYSQL_PASSWORD in your .env file.
--- Uncomment the lines below if you want a dedicated DB user:
--- CREATE USER IF NOT EXISTS 'adk_user'@'localhost' IDENTIFIED BY 'adk_password';
--- GRANT ALL PRIVILEGES ON adk_sessions.* TO 'adk_user'@'localhost';
--- FLUSH PRIVILEGES;
-
--- ============================================================
--- 4. DROP old tables if they exist (clean slate)
--- ============================================================
+-- Drop all existing tables cleanly
+SET FOREIGN_KEY_CHECKS=0;
 DROP TABLE IF EXISTS events;
 DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS app_states;
+DROP TABLE IF EXISTS user_states;
+DROP TABLE IF EXISTS adk_internal_metadata;
+SET FOREIGN_KEY_CHECKS=1;
 
 -- ============================================================
--- 5. Create tables using ADK v1 schema
--- NOTE: VARCHAR(191) on key columns because utf8mb4 = 4 bytes/char.
---   sessions: 3 cols * 191 * 4 = 2292 bytes  < 3072 byte limit
---   events:   4 cols * 191 * 4 = 3056 bytes  < 3072 byte limit
+-- adk_internal_metadata
+-- ADK reads this FIRST to detect schema version.
+-- schema_version='1' → use v1 JSON serialization (event_data column).
+-- If this table is missing, ADK falls back to v0 Pickle detection → error.
 -- ============================================================
+CREATE TABLE adk_internal_metadata (
+    `key`   VARCHAR(128) NOT NULL,
+    value   VARCHAR(256) NOT NULL,
+    PRIMARY KEY (`key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- sessions table
+INSERT INTO adk_internal_metadata (`key`, value) VALUES ('schema_version', '1');
+
+-- ============================================================
+-- sessions
+-- VARCHAR(128) = ADK DEFAULT_MAX_KEY_LENGTH
+-- LONGTEXT     = ADK DynamicJSON on MySQL
+-- ============================================================
 CREATE TABLE sessions (
-    id            VARCHAR(191)  NOT NULL,
-    app_name      VARCHAR(191)  NOT NULL,
-    user_id       VARCHAR(191)  NOT NULL,
-    state         JSON,
-    create_time   DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    update_time   DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
-                                         ON UPDATE CURRENT_TIMESTAMP(6),
+    id          VARCHAR(128) NOT NULL,
+    app_name    VARCHAR(128) NOT NULL,
+    user_id     VARCHAR(128) NOT NULL,
+    state       LONGTEXT,
+    create_time DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    update_time DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+                                      ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (app_name, user_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- events table (full ADK v1 schema)
+-- ============================================================
+-- events (ADK v1: all event data stored in single event_data JSON blob)
+-- ============================================================
 CREATE TABLE events (
-    id                          VARCHAR(191)  NOT NULL,
-    app_name                    VARCHAR(191)  NOT NULL,
-    user_id                     VARCHAR(191)  NOT NULL,
-    session_id                  VARCHAR(191)  NOT NULL,
-    invocation_id               VARCHAR(191)  NOT NULL DEFAULT '',
-    author                      VARCHAR(255),
-    actions                     JSON,
-    long_running_tool_ids_json  JSON,
-    branch                      VARCHAR(255),
-    timestamp                   DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    content                     JSON,
-    grounding_metadata          JSON,
-    custom_metadata             JSON,
-    usage_metadata              JSON,
-    citation_metadata           JSON,
-    partial                     TINYINT(1),
-    turn_complete               TINYINT(1),
-    error_code                  VARCHAR(255),
-    error_message               TEXT,
-    interrupted                 TINYINT(1),
-    input_transcription         JSON,
-    output_transcription        JSON,
+    id            VARCHAR(128) NOT NULL,
+    app_name      VARCHAR(128) NOT NULL,
+    user_id       VARCHAR(128) NOT NULL,
+    session_id    VARCHAR(128) NOT NULL,
+    invocation_id VARCHAR(256) NOT NULL DEFAULT '',
+    timestamp     DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    event_data    LONGTEXT,
     PRIMARY KEY (app_name, user_id, session_id, id),
     CONSTRAINT fk_events_session
         FOREIGN KEY (app_name, user_id, session_id)
@@ -78,18 +71,25 @@ CREATE TABLE events (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
--- 6. Quick sanity-check: list tables and columns
+-- app_states & user_states
 -- ============================================================
-SHOW TABLES;
-DESCRIBE sessions;
-DESCRIBE events;
+CREATE TABLE app_states (
+    app_name    VARCHAR(128) NOT NULL,
+    state       LONGTEXT,
+    update_time DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+                                      ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (app_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ============================================================
--- Done!  Now update your .env file:
---   MYSQL_USER=root
---   MYSQL_PASSWORD=root123
---   MYSQL_HOST=127.0.0.1
---   MYSQL_PORT=3306
---   MYSQL_DATABASE=adk_sessions
--- Then run:  python main.py
--- ============================================================
+CREATE TABLE user_states (
+    app_name    VARCHAR(128) NOT NULL,
+    user_id     VARCHAR(128) NOT NULL,
+    state       LONGTEXT,
+    update_time DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+                                      ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (app_name, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Verify
+SHOW TABLES;
+SELECT * FROM adk_internal_metadata;

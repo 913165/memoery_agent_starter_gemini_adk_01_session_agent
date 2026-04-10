@@ -34,43 +34,38 @@ def build_mysql_url() -> str:
 # which causes: OperationalError: Cannot create a JSON value from a string
 # with CHARACTER SET 'binary'
 # ---------------------------------------------------------------------------
+CREATE_METADATA_SQL = """
+CREATE TABLE IF NOT EXISTS adk_internal_metadata (
+    `key`   VARCHAR(128) NOT NULL,
+    value   VARCHAR(256) NOT NULL,
+    PRIMARY KEY (`key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+"""
+
 CREATE_SESSIONS_SQL = """
 CREATE TABLE IF NOT EXISTS sessions (
-    id            VARCHAR(191) NOT NULL,
-    app_name      VARCHAR(191) NOT NULL,
-    user_id       VARCHAR(191) NOT NULL,
-    state         JSON,
-    create_time   DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    update_time   DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
-                                        ON UPDATE CURRENT_TIMESTAMP(6),
+    id          VARCHAR(128) NOT NULL,
+    app_name    VARCHAR(128) NOT NULL,
+    user_id     VARCHAR(128) NOT NULL,
+    state       LONGTEXT,
+    create_time DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    update_time DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+                                      ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (app_name, user_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 """
 
+# ADK v1 schema: ALL event fields are stored in a single 'event_data' JSON column.
+# Previous schemas had many individual columns — this is the correct v1 layout.
 CREATE_EVENTS_SQL = """
 CREATE TABLE IF NOT EXISTS events (
-    id                         VARCHAR(191) NOT NULL,
-    app_name                   VARCHAR(191) NOT NULL,
-    user_id                    VARCHAR(191) NOT NULL,
-    session_id                 VARCHAR(191) NOT NULL,
-    invocation_id              VARCHAR(191) NOT NULL DEFAULT '',
-    author                     VARCHAR(255),
-    actions                    JSON,
-    long_running_tool_ids_json JSON,
-    branch                     VARCHAR(255),
-    timestamp                  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    content                    JSON,
-    grounding_metadata         JSON,
-    custom_metadata            JSON,
-    usage_metadata             JSON,
-    citation_metadata          JSON,
-    partial                    TINYINT(1),
-    turn_complete              TINYINT(1),
-    error_code                 VARCHAR(255),
-    error_message              TEXT,
-    interrupted                TINYINT(1),
-    input_transcription        JSON,
-    output_transcription       JSON,
+    id            VARCHAR(128) NOT NULL,
+    app_name      VARCHAR(128) NOT NULL,
+    user_id       VARCHAR(128) NOT NULL,
+    session_id    VARCHAR(128) NOT NULL,
+    invocation_id VARCHAR(256) NOT NULL DEFAULT '',
+    timestamp     DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    event_data    LONGTEXT,
     PRIMARY KEY (app_name, user_id, session_id, id),
     CONSTRAINT fk_events_session
         FOREIGN KEY (app_name, user_id, session_id)
@@ -79,12 +74,33 @@ CREATE TABLE IF NOT EXISTS events (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 """
 
+CREATE_APP_STATES_SQL = """
+CREATE TABLE IF NOT EXISTS app_states (
+    app_name    VARCHAR(128) NOT NULL,
+    state       LONGTEXT,
+    update_time DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+                                      ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (app_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+"""
+
+CREATE_USER_STATES_SQL = """
+CREATE TABLE IF NOT EXISTS user_states (
+    app_name    VARCHAR(128) NOT NULL,
+    user_id     VARCHAR(128) NOT NULL,
+    state       LONGTEXT,
+    update_time DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+                                      ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (app_name, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+"""
+
 
 async def ensure_tables():
     """
-    Creates the ADK v1 schema tables if they don't exist yet.
-    Also validates that the existing 'actions' column is JSON (not BLOB/binary).
-    If BLOB is detected (legacy v0), the tables are dropped and recreated.
+    Creates all ADK v1 schema tables if they don't exist.
+    If adk_internal_metadata is missing, drops all old tables and recreates
+    them with the correct v1 schema so ADK doesn't misdetect v0 (Pickle).
     """
     import aiomysql
 
@@ -99,26 +115,43 @@ async def ensure_tables():
         password=password, db=database, charset="utf8mb4"
     )
     async with conn.cursor() as cur:
-        # Check if events table exists and inspect the 'actions' column type
+        # Check if adk_internal_metadata exists — if not, old tables exist
+        # without the version marker → drop everything and recreate cleanly.
         await cur.execute(
-            "SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS "
-            "WHERE TABLE_SCHEMA=%s AND TABLE_NAME='events' AND COLUMN_NAME='actions'",
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES "
+            "WHERE TABLE_SCHEMA=%s AND TABLE_NAME='adk_internal_metadata'",
             (database,)
         )
-        row = await cur.fetchone()
+        metadata_exists = (await cur.fetchone())[0] > 0
 
-        if row and row[0].lower() in ("blob", "longblob", "mediumblob", "tinyblob"):
-            # Legacy v0 schema detected — drop and recreate
-            print("⚠️  Legacy v0 schema detected (BLOB actions). Recreating tables with v1 JSON schema...")
+        # Also check events table has the v1 event_data column.
+        # Old tables may have adk_internal_metadata but wrong events schema.
+        await cur.execute(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA=%s AND TABLE_NAME='events' AND COLUMN_NAME='event_data'",
+            (database,)
+        )
+        event_data_exists = (await cur.fetchone())[0] > 0
+
+        if not metadata_exists or not event_data_exists:
+            print("⚠️  Schema outdated — dropping and recreating all tables...")
             await cur.execute("SET FOREIGN_KEY_CHECKS=0")
-            await cur.execute("DROP TABLE IF EXISTS events")
-            await cur.execute("DROP TABLE IF EXISTS sessions")
+            for tbl in ("events", "sessions", "app_states", "user_states", "adk_internal_metadata"):
+                await cur.execute(f"DROP TABLE IF EXISTS {tbl}")
             await cur.execute("SET FOREIGN_KEY_CHECKS=1")
             await conn.commit()
 
-        # Create tables (IF NOT EXISTS — safe to run every time)
+        # Create all tables (IF NOT EXISTS — safe every run)
+        await cur.execute(CREATE_METADATA_SQL)
         await cur.execute(CREATE_SESSIONS_SQL)
         await cur.execute(CREATE_EVENTS_SQL)
+        await cur.execute(CREATE_APP_STATES_SQL)
+        await cur.execute(CREATE_USER_STATES_SQL)
+
+        # schema_version='1' tells ADK to use v1 JSON serialization
+        await cur.execute(
+            "INSERT IGNORE INTO adk_internal_metadata (`key`, value) VALUES ('schema_version', '1')"
+        )
         await conn.commit()
 
     conn.close()
