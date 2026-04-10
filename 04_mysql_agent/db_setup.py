@@ -88,7 +88,7 @@ def build_mysql_url() -> str:
 
 async def ensure_tables():
     """Creates ADK v1 schema tables. Drops and recreates if schema is outdated."""
-    host     = os.getenv("MYSQL_HOST", "127.0.0. 1")
+    host     = os.getenv("MYSQL_HOST", "127.0.0.1")
     port     = int(os.getenv("MYSQL_PORT", "3306"))
     user     = os.getenv("MYSQL_USER", "root")
     password = os.getenv("MYSQL_PASSWORD", "")
