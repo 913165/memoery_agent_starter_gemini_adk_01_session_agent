@@ -4,4 +4,4 @@ python-dotenv
 sqlalchemy
 aiosqlite
 aiomysql
-
+asyncpg
